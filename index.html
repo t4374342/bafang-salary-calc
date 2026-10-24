@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>考勤卡時數計算</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#f6f7f9;--card:#fff;--tx:#1d2330;--mut:#6b7280;--bd:#d9dde5;--ac:#1f5fbf;--hi:#fff4c2;--bad:#c62828;--tot:#eaf1fc;--am:#eef5ff;--amh:#c9deff;--pm:#fff3e6;--pmh:#ffd9b0}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){color-scheme:dark;--bg:#14171c;--card:#1d222a;--tx:#e8eaee;--mut:#9aa3b2;--bd:#343b47;--ac:#6ea3f0;--hi:#5a4b10;--bad:#ff8a80;--tot:#25324a;--am:#1b2a40;--amh:#2a4670;--pm:#3a2a1a;--pmh:#6b4520}}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.5 "Noto Sans TC","PingFang TC","Microsoft JhengHei",Arial,sans-serif}
+main{max-width:980px;margin:0 auto;padding:14px}
+h1{font-size:20px;margin:4px 0 12px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:10px}
+.bar label{color:var(--mut);font-size:13px}
+input,button{font:inherit;color:var(--tx);background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:6px 8px}
+button{cursor:pointer}
+button.pri{background:var(--ac);border-color:var(--ac);color:#fff}
+button:disabled{opacity:.6}
+#msg{font-size:13px;color:var(--mut);min-height:20px;margin-bottom:8px}
+.wrap{overflow:auto;max-height:70vh;max-height:calc(100dvh - 230px);min-height:320px;-webkit-overflow-scrolling:touch;border:1px solid var(--bd);border-radius:10px;background:var(--card)}
+table{border-collapse:separate;border-spacing:0;width:100%;min-width:700px;text-align:center}
+th,td{border-bottom:1px solid var(--bd);padding:3px 4px;white-space:nowrap}
+thead th{position:sticky;top:0;z-index:3;background:var(--tot);font-size:13px}
+thead th:first-child{left:0;z-index:5}
+td.d{position:sticky;left:0;z-index:2;background:var(--card);box-shadow:1px 0 0 var(--bd);color:var(--mut);width:56px;font-weight:600}
+td.d small{margin-left:3px;font-weight:400;font-size:11px}
+tr.we td.d{color:var(--bad)}
+td.am{background:var(--am)}td.pm{background:var(--pm)}
+th.am{background:var(--amh)}th.pm{background:var(--pmh)}
+tbody tr:hover td{filter:brightness(.97)}
+input:focus{outline:2px solid var(--ac);outline-offset:-1px}
+td input{width:88px;padding:8px 4px;font-size:16px;text-align:center}
+td input.hi{background:var(--hi)}
+td input.err{border-color:var(--bad);color:var(--bad)}
+td input::placeholder{color:var(--bd)}
+td.c{color:var(--mut)}
+td.s{font-weight:600}
+.bad{color:var(--bad)}
+.sum{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline;justify-content:space-between;margin-top:8px;padding:10px 14px;background:var(--tot);border:1px solid var(--bd);border-radius:10px;font-size:14px}
+.sum span:first-child{font-weight:700}
+.sum b{font-size:20px;margin-left:4px}
+@media (max-width:600px){main{padding:8px}td input{width:74px;padding:9px 2px}.bar button{flex:1 1 auto}}
+.note{color:var(--mut);font-size:12px;margin-top:10px}
+</style>
+</head>
+<body>
+<main>
+<h1>考勤卡時數計算</h1>
+<div class="bar">
+  <label>月份 <input type="month" id="ym"></label>
+  <button class="pri" id="photoBtn">拍照／選照片自動填入</button>
+  <input type="file" id="file" accept="image/*" multiple hidden>
+  <button id="clear">清空本月</button>
+</div>
+<div id="msg">時間直接輸入 4 碼即可（例如 0800、1300），輸入完會自動跳到下一格。可一次選正面（1–15 日）與背面（16–31 日）兩張照片，按「拍照／選照片自動填入」辨識。辨識結果以黃色標示，請核對後再使用。</div>
+<div class="wrap"><table>
+<thead><tr><th>日</th><th class="am">上午上班</th><th class="am">上午下班</th><th class="pm">下午上班</th><th class="pm">下午下班</th><th class="am">上午時差</th><th class="am">上午進位</th><th class="pm">下午時差</th><th class="pm">下午進位</th><th>時間差加總</th><th>進位加總</th></tr></thead>
+<tbody id="tb"></tbody>
+</table></div>
+<div class="sum"><span>本月合計</span><span>時間差加總 <b id="tT">0:00</b></span><span>進位加總 <b id="tR">0.00</b></span></div>
+<p class="note">進位規則：分鐘 0–19 捨去、20–46 算 0.5 小時、47–59 進 1 小時；每天先進位，月合計為每日進位後相加。資料只存在這個瀏覽器裡。</p>
+</main>
+<script>
+const $=s=>document.querySelector(s);
+const pad=n=>String(n).padStart(2,'0');
+const key=ym=>'tc:'+ym;
+let ym=new Date().toISOString().slice(0,7), st={name:'',d:[]}, hi=new Set();
+const blank=()=>Array.from({length:31},()=>['','','','']);
+function load(){
+  try{const r=localStorage.getItem(key(ym));st=r?JSON.parse(r):{name:'',d:blank()};}catch(e){st={name:'',d:blank()};}
+  if(!st.d||st.d.length!==31)st.d=blank();
+  hi=new Set();build();
+}
+function save(){try{localStorage.setItem(key(ym),JSON.stringify(st));}catch(e){}}
+const tm=s=>{if(!s)return null;const[a,b]=s.split(':').map(Number);return a*60+b;};
+const rnd=m=>{const h=Math.floor(m/60),n=m%60;return n<=19?h:n<=46?h+.5:h+1;};
+const fmt=m=>Math.floor(m/60)+':'+pad(m%60);
+function seg(a,b){const x=tm(a),y=tm(b);if(x==null||y==null)return{m:0,bad:false};return y>=x?{m:y-x,bad:false}:{m:0,bad:true};}
+function build(){
+  const [y,mo]=ym.split('-').map(Number),days=new Date(y,mo,0).getDate();
+  $('#tb').innerHTML='';
+  for(let i=0;i<days;i++){
+    const tr=document.createElement('tr'),wd=new Date(y,mo-1,i+1).getDay();tr.className=wd%6===0?'we':'';
+    tr.innerHTML='<td class="d">'+(i+1)+'<small>'+'日一二三四五六'[wd]+'</small></td>'+[0,1,2,3].map(j=>'<td class="'+(j<2?'am':'pm')+'"><input type="text" inputmode="numeric" autocomplete="off" maxlength="5" placeholder="0800" data-i="'+i+'" data-j="'+j+'" value="'+(st.d[i][j]||'')+'"'+(hi.has(i+'-'+j)?' class="hi"':'')+'></td>').join('')+'<td class="c am"></td><td class="c am"></td><td class="c pm"></td><td class="c pm"></td><td class="s"></td><td class="s"></td>';
+    $('#tb').appendChild(tr);
+  }
+  calc();
+}
+function calc(){
+  const rows=$('#tb').rows;let T=0,R=0;
+  for(let i=0;i<rows.length;i++){
+    const d=st.d[i],a=seg(d[0],d[1]),b=seg(d[2],d[3]),t=a.m+b.m,c=rows[i].cells;
+    c[5].textContent=fmt(a.m);c[5].classList.toggle('bad',a.bad);
+    c[6].textContent=rnd(a.m);
+    c[7].textContent=fmt(b.m);c[7].classList.toggle('bad',b.bad);
+    c[8].textContent=rnd(b.m);
+    c[9].textContent=fmt(t);c[10].textContent=rnd(t).toFixed(1);
+    T+=t;R+=rnd(t);
+  }
+  $('#tT').textContent=fmt(T);$('#tR').textContent=R.toFixed(2);
+}
+function parseT(v){
+  let d=v.replace(/\D/g,'');if(d.length===3)d='0'+d;if(d.length!==4)return null;
+  const h=+d.slice(0,2),m=+d.slice(2);return h<24&&m<60?pad(h)+':'+pad(m):null;
+}
+function commit(t,final){
+  const v=t.value.trim(),i=+t.dataset.i,j=+t.dataset.j;let out='';
+  if(v===''){out='';t.classList.remove('err');}
+  else{const p=parseT(v);
+    if(p){out=p;t.classList.remove('err');if(final||v.replace(/\D/g,'').length>=4)t.value=p;}
+    else{out='';if(final)t.classList.add('err');}}
+  st.d[i][j]=out;t.classList.remove('hi');hi.delete(i+'-'+j);save();calc();return out!==''||v==='';
+}
+function nextBox(t){const a=[...document.querySelectorAll('#tb input')],k=a.indexOf(t);if(a[k+1]){a[k+1].focus();a[k+1].select();}}
+$('#tb').addEventListener('input',e=>{
+  const t=e.target;if(!t.dataset.i)return;
+  const ok=commit(t,false);
+  if(ok&&t.value.replace(/\D/g,'').length>=4&&/^\d{2}:\d{2}$/.test(t.value))nextBox(t);
+});
+$('#tb').addEventListener('change',e=>{if(e.target.dataset.i)commit(e.target,true);});
+$('#tb').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.dataset.i){e.preventDefault();commit(e.target,true);nextBox(e.target);}});
+$('#tb').addEventListener('focusin',e=>{if(e.target.dataset.i)e.target.select();});
+$('#ym').value=ym;
+$('#ym').addEventListener('change',e=>{if(e.target.value){ym=e.target.value;load();}});
+let clrT=null;
+$('#clear').onclick=()=>{
+  const b=$('#clear');
+  if(!clrT){b.textContent='再按一次確認清空';b.classList.add('pri');clrT=setTimeout(()=>{clrT=null;b.textContent='清空本月';b.classList.remove('pri');},3000);return;}
+  clearTimeout(clrT);clrT=null;b.textContent='清空本月';b.classList.remove('pri');
+  st={d:blank()};save();hi=new Set();build();$('#msg').textContent=ym+' 的資料已清空。';
+};
+/* 拍照辨識 */
+async function shrink(f){
+  const bm=await createImageBitmap(f),k=Math.min(1,1800/Math.max(bm.width,bm.height));
+  const c=document.createElement('canvas');c.width=Math.round(bm.width*k);c.height=Math.round(bm.height*k);
+  c.getContext('2d').drawImage(bm,0,0,c.width,c.height);
+  return new Promise(r=>c.toBlob(r,'image/jpeg',.9));
+}
+$('#photoBtn').onclick=()=>$('#file').click();
+$('#file').onchange=async e=>{
+  const files=[...e.target.files];e.target.value='';if(!files.length)return;
+  const msg=$('#msg'),btn=$('#photoBtn');btn.disabled=true;msg.textContent='辨識中，請稍候…';
+  try{
+    const sample=await claude.use('sample');
+    if(!sample)throw new Error('此環境無法使用 AI 辨識，請手動輸入。');
+    const lim=await sample.limits();
+    if(!lim.images)throw new Error('此環境無法傳送圖片，請手動輸入。');
+    const imgs=[];for(const f of files.slice(0,lim.images.maxCount||4))imgs.push(await shrink(f));
+    const prompt='這是台灣常見的打卡鐘「考勤卡」照片（可能含正面1–15日與背面16–31日）。每個日期列有四欄：上午上班、上午下班、下午上班、下午下班，內容是機器打印的時間。請依卡片上印的日期數字，讀出每一天的四個時間，一律轉成24小時制 HH:MM（下午欄若顯示 1:05 請轉成 13:05）。看不清楚或空白的欄位填 null，不要猜。只回傳 JSON，格式：{"rows":[{"day":1,"t":["08:02","12:01","13:00","17:35"]}]}，只列出有任何時間的日期。';
+    const r=await sample.json(prompt,{images:imgs,cache:false});
+    let n=0;
+    (r.rows||[]).forEach(x=>{
+      const i=x.day-1;if(!(i>=0&&i<31)||!Array.isArray(x.t))return;
+      x.t.slice(0,4).forEach((v,j)=>{if(/^\d{1,2}:\d{2}$/.test(v||'')){st.d[i][j]=pad(+v.split(':')[0])+':'+v.split(':')[1];hi.add(i+'-'+j);n++;}});
+    });
+    save();build();
+    msg.textContent='已填入 '+n+' 個時間（黃色為辨識結果），請對照考勤卡逐一核對。';
+  }catch(err){msg.textContent='辨識失敗：'+(err&&err.message||err.code||'未知錯誤');}
+  btn.disabled=false;
+};
+if(!(window.claude&&claude.use)){$('#photoBtn').hidden=true;$('#msg').textContent='時間直接輸入 4 碼即可（例如 0800、1300），輸入完會自動跳到下一格。';}
+load();
+</script>
+</body>
+</html>
