@@ -51,11 +51,9 @@ td.s{font-weight:600}
 <h1>考勤卡時數計算</h1>
 <div class="bar">
   <label>月份 <input type="month" id="ym"></label>
-  <button class="pri" id="photoBtn">拍照／選照片自動填入</button>
-  <input type="file" id="file" accept="image/*" multiple hidden>
   <button id="clear">清空本月</button>
 </div>
-<div id="msg">時間直接輸入 4 碼即可（例如 0800、1300），輸入完會自動跳到下一格。可一次選正面（1–15 日）與背面（16–31 日）兩張照片，按「拍照／選照片自動填入」辨識。辨識結果以黃色標示，請核對後再使用。</div>
+<div id="msg">時間直接輸入 4 碼（例如 0800、1300），會自動跳到下一格。當天沒有上午或下午時，在「上班」格直接按 Enter，會跳到下一個上班。</div>
 <div class="wrap"><table>
 <thead><tr><th>日</th><th class="am">上午上班</th><th class="am">上午下班</th><th class="pm">下午上班</th><th class="pm">下午下班</th><th class="am">上午時差</th><th class="am">上午進位</th><th class="pm">下午時差</th><th class="pm">下午進位</th><th>時間差加總</th><th>進位加總</th></tr></thead>
 <tbody id="tb"></tbody>
@@ -121,7 +119,16 @@ $('#tb').addEventListener('input',e=>{
   if(ok&&t.value.replace(/\D/g,'').length>=4&&/^\d{2}:\d{2}$/.test(t.value))nextBox(t);
 });
 $('#tb').addEventListener('change',e=>{if(e.target.dataset.i)commit(e.target,true);});
-$('#tb').addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.dataset.i){e.preventDefault();commit(e.target,true);nextBox(e.target);}});
+$('#tb').addEventListener('keydown',e=>{
+  const t=e.target;if(e.key!=='Enter'||!t.dataset.i)return;
+  e.preventDefault();
+  const i=+t.dataset.i,j=+t.dataset.j;
+  if((j===0||j===2)&&t.value.trim()===''){
+    const nx=j===0?[i,2]:[i+1,0],el=document.querySelector('#tb input[data-i="'+nx[0]+'"][data-j="'+nx[1]+'"]');
+    commit(t,true);if(el){el.focus();el.select();}else t.blur();return;
+  }
+  commit(t,true);nextBox(t);
+});
 $('#tb').addEventListener('focusin',e=>{if(e.target.dataset.i)e.target.select();});
 $('#ym').value=ym;
 $('#ym').addEventListener('change',e=>{if(e.target.value){ym=e.target.value;load();}});
@@ -132,36 +139,6 @@ $('#clear').onclick=()=>{
   clearTimeout(clrT);clrT=null;b.textContent='清空本月';b.classList.remove('pri');
   st={d:blank()};save();hi=new Set();build();$('#msg').textContent=ym+' 的資料已清空。';
 };
-/* 拍照辨識 */
-async function shrink(f){
-  const bm=await createImageBitmap(f),k=Math.min(1,1800/Math.max(bm.width,bm.height));
-  const c=document.createElement('canvas');c.width=Math.round(bm.width*k);c.height=Math.round(bm.height*k);
-  c.getContext('2d').drawImage(bm,0,0,c.width,c.height);
-  return new Promise(r=>c.toBlob(r,'image/jpeg',.9));
-}
-$('#photoBtn').onclick=()=>$('#file').click();
-$('#file').onchange=async e=>{
-  const files=[...e.target.files];e.target.value='';if(!files.length)return;
-  const msg=$('#msg'),btn=$('#photoBtn');btn.disabled=true;msg.textContent='辨識中，請稍候…';
-  try{
-    const sample=await claude.use('sample');
-    if(!sample)throw new Error('此環境無法使用 AI 辨識，請手動輸入。');
-    const lim=await sample.limits();
-    if(!lim.images)throw new Error('此環境無法傳送圖片，請手動輸入。');
-    const imgs=[];for(const f of files.slice(0,lim.images.maxCount||4))imgs.push(await shrink(f));
-    const prompt='這是台灣常見的打卡鐘「考勤卡」照片（可能含正面1–15日與背面16–31日）。每個日期列有四欄：上午上班、上午下班、下午上班、下午下班，內容是機器打印的時間。請依卡片上印的日期數字，讀出每一天的四個時間，一律轉成24小時制 HH:MM（下午欄若顯示 1:05 請轉成 13:05）。看不清楚或空白的欄位填 null，不要猜。只回傳 JSON，格式：{"rows":[{"day":1,"t":["08:02","12:01","13:00","17:35"]}]}，只列出有任何時間的日期。';
-    const r=await sample.json(prompt,{images:imgs,cache:false});
-    let n=0;
-    (r.rows||[]).forEach(x=>{
-      const i=x.day-1;if(!(i>=0&&i<31)||!Array.isArray(x.t))return;
-      x.t.slice(0,4).forEach((v,j)=>{if(/^\d{1,2}:\d{2}$/.test(v||'')){st.d[i][j]=pad(+v.split(':')[0])+':'+v.split(':')[1];hi.add(i+'-'+j);n++;}});
-    });
-    save();build();
-    msg.textContent='已填入 '+n+' 個時間（黃色為辨識結果），請對照考勤卡逐一核對。';
-  }catch(err){msg.textContent='辨識失敗：'+(err&&err.message||err.code||'未知錯誤');}
-  btn.disabled=false;
-};
-if(!(window.claude&&claude.use)){$('#photoBtn').hidden=true;$('#msg').textContent='時間直接輸入 4 碼即可（例如 0800、1300），輸入完會自動跳到下一格。';}
 load();
 </script>
 </body>
