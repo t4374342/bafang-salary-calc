@@ -53,7 +53,7 @@ td.s{font-weight:600}
   <label>月份 <input type="month" id="ym"></label>
   <button id="clear">清空本月</button>
 </div>
-<div id="msg">時間直接輸入 4 碼（例如 0800、1300），會自動跳到下一格。當天沒有上午或下午時，在「上班」格直接按 Enter，會跳到下一個上班。</div>
+<div id="msg">時間直接輸入 4 碼（例如 0800、1300），會自動跳到下一格。當天沒有上午或下午時，在「上班」格直接按 Enter，會跳到下一個上班。也可以用方向鍵（↑↓←→）像 Excel 一樣移動。</div>
 <div class="wrap"><table>
 <thead><tr><th>日</th><th class="am">上午上班</th><th class="am">上午下班</th><th class="pm">下午上班</th><th class="pm">下午下班</th><th class="am">上午時差</th><th class="am">上午進位</th><th class="pm">下午時差</th><th class="pm">下午進位</th><th>時間差加總</th><th>進位加總</th></tr></thead>
 <tbody id="tb"></tbody>
@@ -120,7 +120,15 @@ $('#tb').addEventListener('input',e=>{
 });
 $('#tb').addEventListener('change',e=>{if(e.target.dataset.i)commit(e.target,true);});
 $('#tb').addEventListener('keydown',e=>{
-  const t=e.target;if(e.key!=='Enter'||!t.dataset.i)return;
+  const t=e.target;if(!t.dataset.i)return;
+  const AR={ArrowUp:[-1,0],ArrowDown:[1,0],ArrowLeft:[0,-1],ArrowRight:[0,1]};
+  if(AR[e.key]){
+    e.preventDefault();
+    const el=document.querySelector('#tb input[data-i="'+(+t.dataset.i+AR[e.key][0])+'"][data-j="'+(+t.dataset.j+AR[e.key][1])+'"]');
+    if(el){commit(t,true);el.focus();el.select();}
+    return;
+  }
+  if(e.key!=='Enter')return;
   e.preventDefault();
   const i=+t.dataset.i,j=+t.dataset.j;
   if((j===0||j===2)&&t.value.trim()===''){
